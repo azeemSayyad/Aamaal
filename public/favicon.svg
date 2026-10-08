@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#047857"/>
+  <!-- crescent -->
+  <path d="M300 112a150 150 0 1 0 108 254 124 124 0 1 1-108-254z" fill="#ecfdf5"/>
+  <!-- star -->
+  <path d="M352 176l13 31 33 3-25 22 8 33-29-17-29 17 8-33-25-22 33-3z" fill="#a7f3d0"/>
+</svg>
