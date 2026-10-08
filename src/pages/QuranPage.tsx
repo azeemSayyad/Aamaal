@@ -28,10 +28,12 @@ function initialPage() {
  * 13-line IndoPak Mushaf reader (/quran/read). Pages sit in a right-to-left horizontal
  * scroller with snap points, so swiping turns pages like a printed Mushaf.
  * Tapping a line marks "stopped here"; tapping it again clears the mark.
+ * Daily surahs (?daily=1) are read separately: they never move Continue reading or the mark.
  */
 export function QuranReaderPage() {
   const navigate = useNavigate()
-  const [, setParams] = useSearchParams()
+  const [params, setParams] = useSearchParams()
+  const daily = params.get('daily') === '1'
   const { data: mushaf, isLoading, error, refetch } = useMushaf()
   const scroller = useRef<HTMLDivElement>(null)
   const [page, setPage] = useState(initialPage) // layout page, 1-based
@@ -63,9 +65,9 @@ export function QuranReaderPage() {
   // Remember the page; keep the URL in sync so a reload opens the same page
   useEffect(() => {
     if (!total) return
-    saveLastPage(page)
-    setParams({ page: String(page) }, { replace: true })
-  }, [page, total, setParams])
+    if (!daily) saveLastPage(page)
+    setParams(daily ? { page: String(page), daily: '1' } : { page: String(page) }, { replace: true })
+  }, [page, total, daily, setParams])
 
   const toggleMark = useCallback((p: number, line: number) => {
     const cur = readingMark.read()
@@ -117,8 +119,8 @@ export function QuranReaderPage() {
               <Page
                 mushaf={mushaf}
                 pageNo={i + 1}
-                markedLine={mark?.page === i + 1 ? mark.line : null}
-                onToggleMark={toggleMark}
+                markedLine={!daily && mark?.page === i + 1 ? mark.line : null}
+                onToggleMark={daily ? undefined : toggleMark}
               />
             )}
           </div>
@@ -141,7 +143,8 @@ const Page = memo(function Page({
   mushaf: Mushaf
   pageNo: number
   markedLine: number | null
-  onToggleMark: (page: number, line: number) => void
+  /** Omitted in daily-surah mode (no marking) */
+  onToggleMark?: (page: number, line: number) => void
 }) {
   const page = mushaf.pages[pageNo - 1]
   const surah = page.surah ? mushaf.surahs[page.surah - 1] : undefined
@@ -175,7 +178,7 @@ const Page = memo(function Page({
               mushaf={mushaf}
               short={short}
               marked={markedLine === i}
-              onToggleMark={line[0] === 'a' ? () => onToggleMark(pageNo, i) : undefined}
+              onToggleMark={onToggleMark && line[0] === 'a' ? () => onToggleMark(pageNo, i) : undefined}
             />
           ))}
         </div>

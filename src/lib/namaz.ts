@@ -53,7 +53,7 @@ export function calculateDay(loc: NamazLocation, date: Date): DayTimes {
 }
 
 /** Extra (nafl / forbidden / Ramadan) times. A missing start or end means a single moment. */
-export type ExtraTime = { key: string; label: string; start?: Date; end?: Date }
+export type ExtraTime = { key: string; label: string; start?: Date; end?: Date; forbidden?: boolean }
 
 /** Current time, re-rendering every `ms` */
 export function useNow(ms = 30_000) {
@@ -71,7 +71,7 @@ export type SalahKey = (typeof SALAH)[number]
 /** Each salah runs from its start until the next one begins (Fajr until sunrise, Isha until tomorrow's Fajr) */
 export type SalahRange = { key: SalahKey; start: Date; end: Date }
 
-/** Today's times, each salah's range, the next salah, and the one currently in progress */
+/** Today's times, each salah's range, the next salah, and the one currently in progress (with its window) */
 export function useNamaz(now: Date) {
   const loc = namazLocation.use()
   const dayKey = now.toDateString()
@@ -98,7 +98,13 @@ export function useNamaz(now: Date) {
   const next: { key: SalahKey; at: Date } = days.ranges
     .map((r) => ({ key: r.key, at: r.start }))
     .find((p) => p.at > now) ?? { key: 'fajr', at: days.tomorrowFajr }
-  const current = days.ranges.find((r) => r.start <= now && now < r.end)?.key ?? null
+  // After midnight and before Fajr, it is still last night's Isha
+  const currentRange: SalahRange | null =
+    days.ranges.find((r) => r.start <= now && now < r.end) ??
+    (now < days.today.times.fajr && now >= days.yesterday.times.isha
+      ? { key: 'isha', start: days.yesterday.times.isha, end: days.today.times.fajr }
+      : null)
+  const current = currentRange?.key ?? null
 
   // Night-time windows: before today's Fajr they belong to last night, after it to tonight
   const t = days.today.times
@@ -109,16 +115,16 @@ export function useNamaz(now: Date) {
   const ishraq = addMinutes(t.sunrise, ISHRAQ_AFTER_SUNRISE_MIN)
   const zawalStart = addMinutes(t.dhuhr, -ZAWAL_BEFORE_DHUHR_MIN)
   const extras: ExtraTime[] = [
-    { key: 'sunrise', label: 'Sunrise (no salah)', start: t.sunrise, end: ishraq },
+    { key: 'sunrise', label: 'Sunrise (no salah)', start: t.sunrise, end: ishraq, forbidden: true },
     { key: 'ishraq', label: 'Ishraq / Chasht', start: ishraq, end: zawalStart },
-    { key: 'zawal', label: 'Zawal (no salah)', start: zawalStart, end: t.dhuhr },
+    { key: 'zawal', label: 'Zawal (no salah)', start: zawalStart, end: t.dhuhr, forbidden: true },
     { key: 'tahajjud', label: 'Tahajjud', start: night.lastThird, end: night.fajr },
     { key: 'sehri', label: 'Sehri', end: night.fajr },
     { key: 'iftar', label: 'Iftar', start: t.maghrib },
   ]
   const currentExtra = extras.find((e) => e.start && e.end && e.start <= now && now < e.end)?.key ?? null
 
-  return { ...days, next, current, extras, currentExtra }
+  return { ...days, next, current, currentRange, extras, currentExtra }
 }
 
 /** Always 12-hour, e.g. "4:12 PM" (regardless of the phone's 24-hour setting) */
@@ -210,24 +216,22 @@ const ISHA_LAST = 21 * 60
 
 /**
  * Ready-made jamaat choices for a salah window ("HH:MM"), or AUTO for Maghrib.
- *  - Fajr: from start + 5 min (rounded up to :x0/:x5), every 5 min, until 10 min before the window ends
- *  - Asr: same start, every 15 min, until 10 min before Maghrib
+ *  - Fajr, Asr: from start + 5 min (rounded up to :x0/:x5), every 5 min, until 10 min before the window ends
  *  - Zuhr: fixed common times
- *  - Isha: from start + 15 min (rounded up to :x0/:x5), every 15 min, until 9:00 PM
+ *  - Isha: quarter hours (:00/:15/:30/:45) from the first one after Isha begins, until 9:00 PM
  */
 export function jamaatOptions(range: SalahRange): string[] | typeof AUTO {
   const start = minutesOf(range.start)
   switch (range.key) {
     case 'fajr':
-      return steps(ceilTo(start + 5, 5), minutesOf(range.end) - 10, 5)
     case 'asr':
-      return steps(ceilTo(start + 5, 5), minutesOf(range.end) - 10, 15)
+      return steps(ceilTo(start + 5, 5), minutesOf(range.end) - 10, 5)
     case 'dhuhr':
       return ZUHR_OPTIONS
     case 'maghrib':
       return AUTO
     case 'isha':
-      return steps(ceilTo(start + 15, 5), ISHA_LAST, 15)
+      return steps(ceilTo(start, 15), ISHA_LAST, 15)
   }
 }
 

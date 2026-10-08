@@ -8,6 +8,7 @@ import {
   getLastPage,
   printedPage,
   readingMark,
+  saveLastPage,
   searchMushaf,
   toggleFavouriteSurah,
   useMushaf,
@@ -28,7 +29,17 @@ export function QuranHomePage() {
   const favs = favouriteSurahs.use()
 
   const results = useMemo(() => (mushaf ? searchMushaf(mushaf, query) : []), [mushaf, query])
-  const open = (page: number) => navigate(`/quran/read?page=${page}`)
+  /**
+   * continue: resume where you stopped. daily: read a daily surah without touching Continue reading.
+   * browse (search, surah & para lists): starts a new reading position here.
+   */
+  const open = (page: number, mode: 'continue' | 'daily' | 'browse' = 'browse') => {
+    if (mode === 'browse') {
+      readingMark.write(null)
+      saveLastPage(page)
+    }
+    navigate(`/quran/read?page=${page}${mode === 'daily' ? '&daily=1' : ''}`)
+  }
 
   return (
     <div className={cn('mx-auto min-h-dvh max-w-lg bg-stone-50 sm:border-x sm:border-stone-200', NAV_SPACE)}>
@@ -86,7 +97,7 @@ export function QuranHomePage() {
             )
           ) : (
             <>
-              <ContinueCard mushaf={mushaf} mark={mark} onOpen={open} />
+              <ContinueCard mushaf={mushaf} mark={mark} onOpen={(page) => open(page, 'continue')} />
 
               {/* Daily surahs */}
               {favs.length > 0 && (
@@ -99,7 +110,7 @@ export function QuranHomePage() {
                       .map((s) => (
                         <button
                           key={s.n}
-                          onClick={() => open(s.page)}
+                          onClick={() => open(s.page, 'daily')}
                           className="flex w-24 shrink-0 flex-col items-center rounded-2xl bg-white px-2 py-3 shadow-xs ring-1 ring-stone-200/70 active:scale-95"
                         >
                           <span className="font-quran text-xl leading-tight text-emerald-900">{s.ar}</span>

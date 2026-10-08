@@ -1,5 +1,5 @@
 import { Bell, BellOff, BellRing, ChevronDown, LocateFixed, MapPin } from 'lucide-react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { BottomNav, NAV_SPACE, PageHeader } from '../components/layout'
 import { Button, Card, EmptyState, Sheet } from '../components/ui'
@@ -31,7 +31,7 @@ export function NamazPage() {
   const namaz = useNamaz(now)
   const [sheet, setSheet] = useState<'location' | 'jamaat' | null>(null)
   const jamaat = namazJamaat.use()
-  const [showExtras, setShowExtras] = useState(false)
+  const [showExtras, setShowExtras] = useState(true)
 
   return (
     <div className={cn('mx-auto min-h-dvh max-w-lg bg-stone-50 sm:border-x sm:border-stone-200', NAV_SPACE)}>
@@ -71,22 +71,7 @@ export function NamazPage() {
         </div>
       ) : (
         <div className="space-y-4 px-4 pt-4 pb-8">
-          {/* Next salah */}
-          <div className="rounded-3xl bg-linear-to-br from-emerald-600 via-emerald-700 to-teal-800 p-5 text-white shadow-lg shadow-emerald-900/20">
-            <div className="text-xs font-semibold tracking-wider text-emerald-100/90 uppercase">Next</div>
-            <div className="mt-1 flex items-baseline justify-between gap-3">
-              <span className="text-3xl font-extrabold">{PRAYER_NAMES[namaz.next.key]}</span>
-              <span className="text-2xl font-bold tabular-nums">{formatTime(namaz.next.at)}</span>
-            </div>
-            <div className="mt-1 text-sm text-emerald-100">
-              in {formatCountdown(namaz.next.at.getTime() - now.getTime())}
-              {jamaat.times[namaz.next.key] &&
-                ` · Jamaat ${formatJamaat(
-                  jamaat.times[namaz.next.key]!,
-                  namaz.ranges.find((r) => r.key === namaz.next.key),
-                )}`}
-            </div>
-          </div>
+          <NowCard namaz={namaz} now={now} jamaat={jamaat} />
 
           {/* Today */}
           <Card className="divide-y divide-stone-100 overflow-hidden">
@@ -96,7 +81,6 @@ export function NamazPage() {
                 name={PRAYER_NAMES[r.key]}
                 value={`${formatTime(r.start)} – ${formatTime(r.end)}`}
                 active={namaz.current === r.key}
-                next={namaz.next.key === r.key && namaz.next.at.getTime() === r.start.getTime()}
                 jamaat={jamaat.times[r.key] ? formatJamaat(jamaat.times[r.key]!, r) : undefined}
                 notify={!!jamaat.notify[r.key]}
               />
@@ -122,7 +106,14 @@ export function NamazPage() {
               <span>
                 More times
                 {!showExtras && namaz.currentExtra && (
-                  <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                  <span
+                    className={cn(
+                      'ml-2 rounded-full px-2 py-0.5 text-xs font-semibold',
+                      namaz.extras.find((e) => e.key === namaz.currentExtra)?.forbidden
+                        ? 'bg-orange-50 text-orange-700'
+                        : 'bg-emerald-50 text-emerald-700',
+                    )}
+                  >
                     {namaz.extras.find((e) => e.key === namaz.currentExtra)?.label} now
                   </span>
                 )}
@@ -143,6 +134,7 @@ export function NamazPage() {
                           : `at ${formatTime(e.start!)}`
                     }
                     active={namaz.currentExtra === e.key}
+                    warn={e.forbidden}
                   />
                 ))}
               </div>
@@ -160,13 +152,78 @@ export function NamazPage() {
   )
 }
 
+/**
+ * The time it is now: the salah in progress with its window, or between Sunrise and Zuhr the
+ * current window (Sunrise / Ishraq / Zawal) with the next salah underneath.
+ */
+function NowCard({
+  namaz,
+  now,
+  jamaat,
+}: {
+  namaz: NonNullable<ReturnType<typeof useNamaz>>
+  now: Date
+  jamaat: JamaatSettings
+}) {
+  const salah = namaz.currentRange
+  const extra = salah ? undefined : namaz.extras.find((e) => e.key === namaz.currentExtra)
+  const title = salah ? PRAYER_NAMES[salah.key] : (extra?.label ?? PRAYER_NAMES[namaz.next.key])
+  const start = salah?.start ?? extra?.start
+  const end = salah?.end ?? extra?.end
+  const forbidden = !!extra?.forbidden
+  const jamaatText = salah && jamaat.times[salah.key] ? `Jamaat ${formatJamaat(jamaat.times[salah.key]!, salah)}` : null
+
+  return (
+    <div
+      className={cn(
+        'rounded-3xl bg-linear-to-br p-5 text-white shadow-lg',
+        // No salah allowed now (Sunrise, Zawal): warning colours
+        forbidden
+          ? 'from-orange-500 via-orange-600 to-red-700 shadow-orange-900/20'
+          : 'from-emerald-600 via-emerald-700 to-teal-800 shadow-emerald-900/20',
+      )}
+    >
+      <div
+        className={cn(
+          'text-xs font-semibold tracking-wider uppercase',
+          forbidden ? 'text-orange-100' : 'text-emerald-100/90',
+        )}
+      >
+        Now
+      </div>
+      {/* Long names (e.g. "Sunrise (no salah)") push the time range onto its own line */}
+      <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3">
+        <span className="text-3xl font-extrabold">{title}</span>
+        {start && end && (
+          <span className="shrink-0 text-lg font-bold tabular-nums">
+            {formatTime(start)} – {formatTime(end)}
+          </span>
+        )}
+      </div>
+      <div className={cn('mt-1 text-sm', forbidden ? 'text-orange-100' : 'text-emerald-100')}>
+        {salah ? (
+          <>
+            ends in {formatCountdown(salah.end.getTime() - now.getTime())}
+            {jamaatText && ` · ${jamaatText}`}
+          </>
+        ) : (
+          <>
+            {PRAYER_NAMES[namaz.next.key]} at {formatTime(namaz.next.at)} · in{' '}
+            {formatCountdown(namaz.next.at.getTime() - now.getTime())}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function TimeRow({
   name,
   time,
   value,
   muted,
   active,
-  next,
+  warn,
   jamaat,
   notify,
 }: {
@@ -175,7 +232,8 @@ function TimeRow({
   value?: string
   muted?: boolean
   active?: boolean
-  next?: boolean
+  /** No-salah window: highlighted in orange when active */
+  warn?: boolean
   /** masjid jamaat time, already formatted */
   jamaat?: string
   notify?: boolean
@@ -184,8 +242,8 @@ function TimeRow({
     <div
       className={cn(
         'flex items-center justify-between px-4 py-3',
-        active && 'bg-emerald-50',
-        next && 'shadow-[inset_3px_0_0] shadow-emerald-600',
+        active && 'shadow-[inset_3px_0_0]',
+        active && (warn ? 'bg-orange-50 shadow-orange-500' : 'bg-emerald-50 shadow-emerald-600'),
       )}
     >
       <span className="min-w-0">
@@ -383,7 +441,7 @@ function JamaatSheet({ ranges, onClose }: { ranges: SalahRange[]; onClose: () =>
   )
 }
 
-/** Grid of ready-made times plus "Custom" (native time picker) at the end */
+/** Scrollable grid of ready-made times, then "Custom" (native time picker) below it */
 function TimeChoices({
   options,
   value,
@@ -396,13 +454,21 @@ function TimeChoices({
   onClear?: () => void
 }) {
   const [custom, setCustom] = useState(!!value && !options.includes(value))
+  // Long lists scroll inside their box; start with the chosen time in view
+  const list = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const box = list.current
+    const chosen = box?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    if (box && chosen) box.scrollTop = chosen.offsetTop - box.clientHeight / 2 + chosen.offsetHeight / 2
+  }, [])
   return (
     <div className="bg-stone-50 px-3 pt-1 pb-3">
-      <div className="grid grid-cols-4 gap-1.5">
+      <div ref={list} className="relative grid max-h-52 grid-cols-4 gap-1.5 overflow-y-auto overscroll-contain p-0.5">
         {options.map((o) => (
           <button
             key={o}
             onClick={() => onPick(o)}
+            aria-pressed={value === o}
             className={cn(
               'h-9 rounded-lg text-[13px] font-semibold tabular-nums transition active:scale-95',
               value === o ? 'bg-emerald-600 text-white' : 'bg-white text-stone-700 ring-1 ring-stone-200',
@@ -411,19 +477,27 @@ function TimeChoices({
             {formatHHMM(o).replace(' ', '\u00a0')}
           </button>
         ))}
-        <button
-          onClick={() => setCustom((c) => !c)}
-          className={cn(
-            'h-9 rounded-lg text-[13px] font-semibold transition active:scale-95',
-            custom ? 'bg-stone-800 text-white' : 'bg-white text-stone-700 ring-1 ring-stone-200',
-          )}
-        >
-          Custom
-        </button>
       </div>
+      <button
+        onClick={() => setCustom((c) => !c)}
+        className={cn(
+          'mt-1.5 h-9 w-full rounded-lg text-[13px] font-semibold transition active:scale-95',
+          custom ? 'bg-stone-800 text-white' : 'bg-white text-stone-700 ring-1 ring-stone-200',
+        )}
+      >
+        Custom
+      </button>
       {custom && (
         <input
           type="time"
+          // Open the picker on a tap anywhere in the box, not only on the small clock icon
+          onClick={(e) => {
+            try {
+              e.currentTarget.showPicker()
+            } catch {
+              /* older browsers: the native control still works */
+            }
+          }}
           defaultValue={value && !options.includes(value) ? value : undefined}
           onChange={(e) => e.target.value && onPick(e.target.value)}
           aria-label="Custom jamaat time"
